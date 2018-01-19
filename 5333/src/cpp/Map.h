@@ -2,9 +2,19 @@
 
 #include "WPILib.h"
 
+#define JOY_CONTROL 2
+
 namespace Map { // Map ports
   struct Controllers {
+    #ifdef XBOX_CONTROL
     static const int xbox = 0;
+    static constexpr double deadzone = 0.04;
+
+    #elif JOY_CONTROL
+    static constexpr int joy[2] = {0, 1};
+    static constexpr double deadzone = 0.08;
+
+    #endif
   };
 
   struct Sensors { };
