@@ -1,16 +1,17 @@
 #pragma once
 
-#include <pathfinder.h>
+#include "curtinfrc/drivetrain.h"
+#include <openrio/powerup/MatchData.h>
 
-#define nPOINTS 3
+using namespace curtinfrc;
+using namespace OpenRIO::PowerUp;
 
 class AutoControl {
 public:
-  int init();
+  AutoControl(Drivetrain *drive_);
+  void init();
   void tick();
-
-  int segment_length;
-  Segment segments_left[1024], segments_right[1024];
-  EncoderFollower leftfollower, rightfollower;
-  EncoderConfig config;
+private:
+  MatchData::OwnedSide near_switch, scale, far_switch;
+  Drivetrain *drive;
 };

@@ -1,17 +1,16 @@
 // Shared headers
 #include "curtinfrc/math.h"
-#include "curtinfrc/drivetrain.h" // Shared drivetrain
-#include "curtinfrc/vision/vision.h"
+#include "curtinfrc/drivetrain.h"
+#include "curtinfrc/strategy/mp_strategy.h"
 #include "WPILib.h"
-// #include <pathfinder.h>
 
 // Robot part classes
 #include "IO.h"
 #include "Belev.h"
 #include "Map.h"
-#include "Claw.h"
-#include "Intake.h"
+#include "Winch.h"
 #include "ControlMap.h"
+#include "DriveStarategy.h"
 #include "Auto.h"
 
 // Other required libraries
@@ -26,113 +25,57 @@ using namespace std;
 
 class Robot : public TimedRobot {
 public:
-  Drivetrain<2> *drive;
-  double throttle;
-  bool left_bumper_toggle, right_bumper_toggle;
-
-  AutoControl *auto_;
+  Drivetrain *drive;
 
   BelevatorControl *belev;
-  ClawControl *claw;
-  IntakeControl *intake;
+  WinchControl *winch;
 
   IO *io;
+
+  AutoControl *auto_;
 
   Robot() { }
 
   void RobotInit() {
     io = IO::get_instance(); // Refer to IO
 
-    auto_ = new AutoControl();
-
-    drive = new Drivetrain<2>(io->left_motors, io->right_motors);
+    drive = new Drivetrain(io->left_motors[0], io->right_motors[0], io->left_motors[0], io->right_motors[0]);
     belev = new BelevatorControl();
-    claw = new ClawControl();
-    intake = new IntakeControl();
+    winch = new WinchControl();
 
-    throttle = 0.6;
-    left_bumper_toggle = right_bumper_toggle = false;
+    auto_ = new AutoControl(drive);
   }
 
   void AutonomousInit() {
-    std::cout << "Auto Init" << std::endl;
+    cout << "Auto Init" << endl;
     auto io = IO::get_instance();
     io->navx->ZeroYaw();
-    // Note: wheelbase width: 0.72
-    MotionProfileConfig cfg = {
-      1440, 6,                                // enc_ticks, wheel_diam
-      12.0 / 0.2, 0,                             // kp (1 / full_speed_threshold_distance), kd
-      //3.34 / 12.0, 0.911 / 12.0,                  // kv, ka
-      3.34, 0.76,                 // kv, ka
-      3 * (1.0/80.0),
-      curtinfrc::MotionProfileMode::PATHFINDER
-    };
-    auto strat = std::make_shared<curtinfrc::MotionProfileStrategy>(
-      io->left_motors[0], io->right_motors[0],
-      io->navx, 
-      "/home/lvuser/paths/test_left.csv", "/home/lvuser/paths/test_right.csv",
-      cfg
-    );
-    drive->strategy_controller().set_active(strat);
+
+    auto_->init();
   }
   void AutonomousPeriodic() {
+    auto_->tick();
     drive->strategy_controller().periodic();
     drive->log_write(); // Make this bit call only on mutates later *
-    belev->log_write();
-    claw->log_write();
-    intake->log_write();
+    // belev->log_write();
+    // winch->log_write();
   }
 
   void TeleopInit() {
-    SmartDashboard::PutNumber("Throttle:", throttle);
+    cout << "Teleop Init" << endl;
     ControlMap::init();
-    drive->strategy_controller().set_active(nullptr);
+
+    auto strat = make_shared<DriveStarategy>(drive);
+    drive->strategy_controller().set_active(strat);
   }
   void TeleopPeriodic() {
-    // Only move if joystick is not in deadzone
-    if(fabs(ControlMap::left_drive_power()) > Map::Controllers::deadzone) {
-      // double output_left = math::square_keep_sign(ControlMap::left_drive_power());
-      double output_left = ControlMap::left_drive_power();
-      drive->set_left(output_left * throttle);
-    } else {
-      drive->set_left(0);
-    }
+    drive->strategy_controller().periodic();
 
-    if(fabs(ControlMap::right_drive_power()) > Map::Controllers::deadzone) {
-      // double output_right = math::square_keep_sign(ControlMap::right_drive_power());
-      double output_right = ControlMap::right_drive_power();
-      drive->set_right(output_right * throttle);
-    } else {
-      drive->set_right(0);
-    }
+    belev->lift_speed(ControlMap::belevator_motor_power());
+    belev->claw(ControlMap::intake_claw_state());
+    belev->intake(ControlMap::intake_motor_power());
 
-    belev->send_to_robot(ControlMap::belevator_motor_power()); // Right controls up, left controls down
-    // claw->send_to_robot(io->get_());
-    // intake->send_to_robot(io->get_right_bumper());
-
-    // Throttle Control
-    if (left_bumper_toggle != ControlMap::throttle_decrement()) { // Prevent registering as multiple presses
-      left_bumper_toggle = ControlMap::throttle_decrement();
-      if (left_bumper_toggle) { // Left bumper decreases throttle, while right increases throttle
-        throttle -= 0.1;
-        throttle = round(max(throttle, 0.1) * 10) / 10;
-        cout << "Throttle changed to " << throttle << endl;
-        SmartDashboard::PutNumber("Throttle:", throttle);
-      }
-    } else if (right_bumper_toggle != ControlMap::throttle_increment()) {
-      right_bumper_toggle = ControlMap::throttle_increment();
-      if (right_bumper_toggle) {
-        throttle += 0.1;
-        throttle = round(min(throttle, 1.0) * 10) / 10;
-        cout << "Throttle changed to " << throttle << endl;
-        SmartDashboard::PutNumber("Throttle:", throttle);
-      }
-    }
-
-    claw->send_to_robot(
-      ControlMap::claw_state() ? DoubleSolenoid::Value::kForward : DoubleSolenoid::Value::kReverse
-    ); // Note: The claw solenoid is reversed
-    // 14 changes to 5 cylinders reduce upstream from 120 to 60
+    winch->send_to_robot(ControlMap::winch_power());
   }
 
   void TestInit() {
